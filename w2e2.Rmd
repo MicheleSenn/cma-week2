@@ -1,0 +1,144 @@
+---
+title: "w2e2"
+author: "Michele Senn"
+date: '2022-05-05'
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+## Load the necessary libraries ################################################
+
+library(readr)        # to import tabular data (e.g. csv)
+library(dplyr)        # to manipulate (tabular) data
+library(ggplot2)      # to visualize data
+library(sf)           # to handle spatial vector data
+library(terra)        # To handle raster data
+library(lubridate)    # To handle dates and times
+
+## Import the downloaded file ##################################################
+
+wildschwein_BE <- read_delim("wildschwein_BE_2056.txt",",") 
+
+wildschwein_BE <- st_as_sf(wildschwein_BE, coords = c("E", "N"), crs = 2056, remove = FALSE)
+```
+
+
+Task 2
+```{r}
+
+byid = wildschwein_BE %>%
+  group_by(TierID)
+
+wildschwein_timelag = byid %>% mutate(timelag = as.integer(difftime(lead(DatetimeUTC),DatetimeUTC, units="secs")))
+
+
+##How many animals were tracked?
+wildschwein_timelag %>%
+  group_by(TierName) %>%
+  summarise()
+#3 animals were tracked (Rosa, Ruth, Sabi)
+
+##For how long were the individual tracked? Are there gaps?
+wildschwein_timelag %>%
+  group_by(TierName) %>%   summarise(min=min(DatetimeUTC),max=max(DatetimeUTC)) %>%mutate(duration = difftime(max, min,units="days"))
+
+wildschwein_gaps <- wildschwein_timelag %>%
+  filter(timelag > 10000) %>%
+  group_by(TierID) %>%
+  summarise(n=n())
+
+
+#Rosa has been tracked for 234.6663 days, Ruth for 261.6559 days, Sabi for 338.5834 days. There were 400-500 Gaps.
+
+##Were all individuals tracked concurrently or sequentially?
+
+ggplot(wildschwein_timelag,aes(y=TierName,x=DatetimeUTC)) + geom_line()
+
+
+ggplot(wildschwein_timelag,aes(x=DatetimeUTC,y=timelag, col=TierID)) + geom_line()
+
+
+#tracing was partially concurrently. First boar was Sabi, also finishing last. Then Ruth and Rosa got tracked.
+
+```
+
+Task 3
+```{r}
+wildschwein_distance <- wildschwein_timelag %>%
+  mutate(steplength = sqrt(((E-lead(E,1))^2) + (N-lead(N,1))^2)) %>%
+  mutate("speed_m/s" = steplength/timelag)
+
+#the unit for the speed is metres/seconds
+
+
+
+```
+
+Task 4
+```{r}
+caro <- read_delim("caro60.txt")
+
+caro_3 <- caro %>% dplyr::filter(row_number() %% 3 == 0)
+caro_6 <- caro %>% dplyr::filter(row_number() %% 6 == 0)
+caro_9 <- caro %>% dplyr::filter(row_number() %% 9 == 0)
+
+caro_calc <- caro %>%
+  group_by(TierID) %>%
+  mutate(timelag = as.integer(difftime(lead(DatetimeUTC),DatetimeUTC, units="secs"))) %>%
+  mutate(steplength = sqrt(((E-lead(E,1))^2) + ((N-lead(N,1))^2))) %>%
+  mutate(speed = steplength/timelag)
+
+caro_3_calc <- caro_3 %>%
+  group_by(TierID) %>%
+  mutate(timelag = as.integer(difftime(lead(DatetimeUTC),DatetimeUTC, units="secs"))) %>%
+  mutate(steplength = sqrt(((E-lead(E,1))^2) + ((N-lead(N,1))^2))) %>%
+  mutate(speed = steplength/timelag)
+
+caro_6_calc <- caro_6 %>%
+  group_by(TierID) %>%
+  mutate(timelag = as.integer(difftime(lead(DatetimeUTC),DatetimeUTC, units="secs"))) %>%
+  mutate(steplength = sqrt(((E-lead(E,1))^2) + ((N-lead(N,1))^2))) %>%
+  mutate(speed = steplength/timelag)
+
+caro_9_calc <- caro_9 %>%
+  group_by(TierID) %>%
+  mutate(timelag = as.integer(difftime(lead(DatetimeUTC),DatetimeUTC, units="secs"))) %>%
+  mutate(steplength = sqrt(((E-lead(E,1))^2) + ((N-lead(N,1))^2))) %>%
+  mutate(speed = steplength/timelag)
+
+ggplot(caro_calc,aes(DatetimeUTC,speed)) + geom_line(color="black") + geom_line(data=caro_3_calc, color="red") +
+  theme_classic() + geom_line(data=caro_6_calc, color="orange") + geom_line(data=caro_9_calc,color="green") +
+  labs(x="Zeitpunkt",y="Speed (m/s)") #+ theme(legend.position="top") + scale_fill_manual(values=c("traj1","traj2","traj3","traj4"))
+
+#With decreasing resolution the number of speed maxima decreased as timelag between observations increased. 
+
+```
+
+Task 5
+```{r}
+install.packages("zoo")
+library(zoo)
+
+caro_speed2 <- rollmean(caro_calc$speed,k = 2 ,fill=NA,align = "left")
+caro_speed4 <- rollmean(caro_calc$speed,k=4,fill=NA,align = "left")
+caro_speed8 <- rollmean(caro_calc$speed,k=8,fill=NA,align = "left")
+caro_speed10 <- rollmean(caro_calc$speed,k=10,fill=NA,align = "left")
+
+df <- data.frame(caro_speed2,caro_speed4,caro_speed8,caro_speed10)
+df <- df %>%
+  dplyr::mutate(id=row_number())
+df_pivot <- df %>%
+  tidyr::pivot_longer(-id,names_to="number_of_k",values_to="rolling_mean")
+
+ggplot(df_pivot,aes(y=rolling_mean, x=id, color=number_of_k)) +
+  geom_line() + facet_wrap(vars(number_of_k)) +
+  theme(legend.position="none")
+
+##rolling mean decreases with increasing window size k
+
+
+
+```
+
